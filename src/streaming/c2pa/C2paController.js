@@ -160,7 +160,8 @@ function C2paController() {
         scanner = C2paScanner(context).create({
             customParametersModel,
             segmentHandler: coordinator.handleSegment,
-            getMediaTypes: () => normalizeC2paOptions(settings.get().streaming.c2pa).mediaTypes
+            getMediaTypes: () => normalizeC2paOptions(settings.get().streaming.c2pa).mediaTypes,
+            onMediaTypeResumed: coordinator.resetSequencesForMediaType
         });
     }
 

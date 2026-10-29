@@ -285,6 +285,31 @@ describe('C2paValidationCoordinator', function () {
         });
     });
 
+    describe('a media type scanned again after being left out', function () {
+
+        it('should start its active track from a fresh baseline', async () => {
+            const {engine} = vsiEngineReturningSequences([10, 11, 18]);
+            const {coordinator, events} = createCoordinator({engine});
+
+            await coordinator.handleSegment(initInput('stream3'));
+            await coordinator.handleSegment(mediaInput('stream3', 1));
+            await coordinator.handleSegment(mediaInput('stream3', 2));
+            // Segments 12 to 17 were not scanned while video was left out of mediaTypes.
+            coordinator.resetSequencesForMediaType('video');
+            await coordinator.handleSegment(mediaInput('stream3', 3));
+
+            const records = eventsOfType(events, MediaPlayerEvents.C2PA_SEGMENT_VALIDATED);
+            expect(records.map((record) => record.status)).to.deep.equal(['valid', 'valid', 'valid']);
+        });
+
+        it('should ignore a media type with no active track', () => {
+            const {engine} = createEngine({});
+            const {coordinator} = createCoordinator({engine});
+
+            expect(() => coordinator.resetSequencesForMediaType('audio')).to.not.throw();
+        });
+    });
+
     describe('event timestamps', function () {
 
         it('should stamp C2PA_ERROR with the injected clock', async () => {

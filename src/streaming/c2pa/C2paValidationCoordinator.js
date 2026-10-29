@@ -599,6 +599,19 @@ function C2paValidationCoordinator(config) {
     }
 
     /**
+     * Resets the sequence state of a media type's active track. Called when the media type
+     * is scanned again after being left out of `mediaTypes`, so the segments it skipped
+     * don't read as a gap.
+     * @param {string} mediaType
+     */
+    function resetSequencesForMediaType(mediaType) {
+        const trackKey = activeTrackKeyByMediaType[mediaType];
+        if (trackKey) {
+            resetSequenceForTrack(trackKey);
+        }
+    }
+
+    /**
      * Clears the sequence and continuity state of a single track; the track's
      * classification and session keys are kept.
      * @param {string} trackKey
@@ -617,6 +630,7 @@ function C2paValidationCoordinator(config) {
         handleSegment,
         reset,
         resetActiveSequences,
+        resetSequencesForMediaType,
         resetSequenceForTrack
     };
 
