@@ -69,13 +69,17 @@ const SEGMENT_ROLE_PREFIX_PATTERN = /^(?:init|chunk)-/;
  * @param {Object} config.customParametersModel Exposes addResponseInterceptor / removeResponseInterceptor.
  * @param {function(SegmentInput):*} [config.segmentHandler] Consumer of the normalized chunk.
  * @param {Array.<string>} [config.mediaTypes] Media types to scan; defaults to video and audio.
+ * @param {function(): Array.<string>} [config.getMediaTypes] Returns the media types to scan,
+ * read on every response so a settings change applies right away. Takes precedence over
+ * `config.mediaTypes`.
  */
 function C2paScanner(config) {
     config = config || {};
     const context = this.context;
     const customParametersModel = config.customParametersModel;
     const segmentHandler = config.segmentHandler;
-    const mediaTypes = Array.isArray(config.mediaTypes) ? config.mediaTypes : DEFAULT_C2PA_MEDIA_TYPES.slice();
+    const staticMediaTypes = Array.isArray(config.mediaTypes) ? config.mediaTypes : DEFAULT_C2PA_MEDIA_TYPES.slice();
+    const getMediaTypes = typeof config.getMediaTypes === 'function' ? config.getMediaTypes : () => staticMediaTypes;
 
     let instance,
         logger,
@@ -153,7 +157,7 @@ function C2paScanner(config) {
         }
 
         const mediaType = request.mediaType;
-        if (mediaTypes.indexOf(mediaType) === -1) {
+        if (getMediaTypes().indexOf(mediaType) === -1) {
             return null;
         }
 

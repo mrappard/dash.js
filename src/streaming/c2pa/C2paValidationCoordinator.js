@@ -214,7 +214,9 @@ function C2paValidationCoordinator(config) {
             manifestId: validation ? validation.manifestId : null,
             issuer: _issuerOf(validation),
             hasC2pa: method !== null,
-            skip: !_forcedMethod() && method === null,
+            // No C2PA in the init. Only skips the track while `method` is 'auto', which
+            // _handleMediaSegment checks per segment, so forcing a method later applies.
+            skip: method === null,
             sequenceState: undefined,
             // The init segment's own manifest is not part of the media-segment
             // previousManifestId chain, so the continuity baseline starts unknown; the
@@ -228,11 +230,11 @@ function C2paValidationCoordinator(config) {
 
     async function _handleMediaSegment(input) {
         const state = trackStates[input.trackKey];
-        if (state && state.skip) {
+        const forced = _forcedMethod() !== null;
+        if (state && state.skip && !forced) {
             // A non-C2PA track in auto mode is never parsed or validated again.
             return;
         }
-        const forced = _forcedMethod() !== null;
         const method = _resolveMediaMethod(input, state);
 
         if (method !== C2PA_METHOD_VSI && method !== C2PA_METHOD_MANIFEST_BOX) {
@@ -256,8 +258,10 @@ function C2paValidationCoordinator(config) {
      * Emits a validated media record, sequence-checking the signed number on a `valid`
      * record only: a forged number on a failed one must never drive the gap loop below.
      */
-    function _emitValidatedWithSequence(input, record) {
-        const sequenceNumber = record.segmentNumber;
+    function _emitValidatedWithSequence(input, record, signedSequenceNumber) {
+        // Only the signed number is checked. The URL-derived fallback in `segmentNumber` may
+        // be a $Time$ value, whose steps would read as huge gaps.
+        const sequenceNumber = signedSequenceNumber;
         if (record.status === STATUS_VALID && typeof sequenceNumber === 'number' && !isNaN(sequenceNumber)) {
             const sequence = sequenceTracker.check(input.trackKey, sequenceNumber);
             if (sequence.missingCount > MAX_REPORTED_MISSING_SEGMENTS) {
@@ -355,7 +359,7 @@ function C2paValidationCoordinator(config) {
         if (state) {
             state.sequenceState = outcome.nextSequenceState;
         }
-        _emitValidatedWithSequence(input, _toVsiSegmentRecord(input, outcome.result, state));
+        _emitValidatedWithSequence(input, _toVsiSegmentRecord(input, outcome.result, state), _signedSequenceNumberOf(outcome.result));
     }
 
     async function _validateManifestBoxSegment(input, state, forced) {
@@ -396,7 +400,7 @@ function C2paValidationCoordinator(config) {
             state.lastManifestId = outcome.nextManifestId;
             state.manifestBoxState = outcome.nextState;
         }
-        _emitValidatedWithSequence(input, _toManifestBoxSegmentRecord(input, outcome));
+        _emitValidatedWithSequence(input, _toManifestBoxSegmentRecord(input, outcome), _signedSequenceNumberOf(outcome.result));
     }
 
     function _forcedMismatchRecord(input, method) {
@@ -527,7 +531,7 @@ function C2paValidationCoordinator(config) {
             mediaType: input.mediaType,
             errorCodes: [errorCode],
             message,
-            timestamp: Date.now()
+            timestamp: now()
         }, { mediaType: input.mediaType });
     }
 
@@ -543,7 +547,12 @@ function C2paValidationCoordinator(config) {
     // The authoritative sequence number is the one carried in the signed segment; the
     // URL-derived number is only a fallback (it may be a time value for some packagers).
     function _sequenceNumberOf(result, input) {
-        return result && typeof result.sequenceNumber === 'number' ? result.sequenceNumber : input.segmentNumber;
+        const signed = _signedSequenceNumberOf(result);
+        return isNaN(signed) ? input.segmentNumber : signed;
+    }
+
+    function _signedSequenceNumberOf(result) {
+        return result && typeof result.sequenceNumber === 'number' ? result.sequenceNumber : NaN;
     }
 
     /**

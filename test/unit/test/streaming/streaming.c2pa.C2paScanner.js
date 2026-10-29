@@ -229,6 +229,27 @@ describe('C2paScanner', function () {
             expect(handledSegments.length).to.equal(0);
         });
 
+        it('should read the media types on every response when given a getter', async () => {
+            let mediaTypes = ['video', 'audio'];
+            scanner = C2paScanner(context).create({
+                customParametersModel,
+                segmentHandler: (segmentInput) => handledSegments.push(segmentInput),
+                getMediaTypes: () => mediaTypes
+            });
+            const audioResponse = () => createResponse({
+                type: HTTPRequest.MEDIA_SEGMENT_TYPE,
+                mediaType: 'audio',
+                url: 'https://cdn.example/live/chunk-stream4-00001.m4s',
+                data: bufferFrom([1])
+            });
+
+            await intercept(audioResponse());
+            mediaTypes = ['video'];
+            await intercept(audioResponse());
+
+            expect(handledSegments.length).to.equal(1);
+        });
+
         it('should never propagate a handler failure to the pipeline', async () => {
             scanner = C2paScanner(context).create({
                 customParametersModel,
