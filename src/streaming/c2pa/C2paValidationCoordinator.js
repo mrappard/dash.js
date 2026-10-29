@@ -59,6 +59,9 @@ const CRYPTO_UNAVAILABLE_CODE = 'c2pa.cryptoUnavailable';
 const VALIDATION_ERROR_CODE = 'c2pa.validationError';
 // Emitted once per session when the validation engine fails to load.
 const ENGINE_UNAVAILABLE_CODE = 'c2pa.engineUnavailable';
+// Emitted when a §19.4 media segment arrives for a track whose init segment, which
+// carries the session keys, was never seen.
+const INIT_SEGMENT_MISSING_CODE = 'c2pa.initSegmentMissing';
 
 /**
  * Guarded dynamic import of the validation engine. Keeps `@svta/cml-c2pa` out of both
@@ -119,7 +122,8 @@ function C2paValidationCoordinator(config) {
         activeTrackKeyByMediaType,
         initPromises,
         enginePromise,
-        engineErrorReported;
+        engineErrorReported,
+        initMissingReported;
 
     function setup() {
         logger = Debug(context).getInstance().getLogger(instance);
@@ -129,6 +133,7 @@ function C2paValidationCoordinator(config) {
         initPromises = {};
         enginePromise = null;
         engineErrorReported = false;
+        initMissingReported = {};
     }
 
     /**
@@ -242,6 +247,14 @@ function C2paValidationCoordinator(config) {
         if (!isCryptoAvailable()) {
             // Emit `unverified` rather than calling the engine (which would throw).
             _emitUnverified(input, method, CRYPTO_UNAVAILABLE_CODE, 'Web Crypto is unavailable in this context');
+            return;
+        }
+
+        if (method === C2PA_METHOD_VSI && !state) {
+            // Without the init's session keys the segment can't be checked either way, so
+            // it is `unverified`, not `invalid`. This happens when C2PA is enabled
+            // mid-stream or the init was fetched before scanning started.
+            _emitInitMissing(input);
             return;
         }
 
@@ -520,6 +533,23 @@ function C2paValidationCoordinator(config) {
         _emitError(input, input.segmentNumber, errorCode, message);
     }
 
+    // An `unverified` record for every such segment, but C2PA_ERROR only once per track.
+    function _emitInitMissing(input) {
+        _emitSegmentValidated(_createSegmentRecord({
+            segmentNumber: input.segmentNumber,
+            mediaType: input.mediaType,
+            method: C2PA_METHOD_VSI,
+            status: STATUS_UNVERIFIED,
+            errorCodes: [INIT_SEGMENT_MISSING_CODE]
+        }));
+        if (!initMissingReported[input.trackKey]) {
+            initMissingReported[input.trackKey] = true;
+            _emitError(input, input.segmentNumber, INIT_SEGMENT_MISSING_CODE,
+                'No init segment was seen for this track, so its session keys are unknown. ' +
+                'Its segments stay unverified until the player fetches the init segment again.');
+        }
+    }
+
     function _emitError(input, segmentNumber, errorCode, message) {
         eventBus.trigger(MediaPlayerEvents.C2PA_ERROR, {
             trackKey: input.trackKey,
@@ -577,6 +607,7 @@ function C2paValidationCoordinator(config) {
         initPromises = {};
         enginePromise = null;
         engineErrorReported = false;
+        initMissingReported = {};
     }
 
     /**
